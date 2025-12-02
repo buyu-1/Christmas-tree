@@ -1,8 +1,7 @@
-import { useState, useMemo, useRef, useEffect, Suspense } from 'react';
+import { useState, useMemo, useRef, useEffect, Suspense, Component, type ErrorInfo, type ReactNode } from 'react';
 import { Canvas, useFrame, extend } from '@react-three/fiber';
 import {
   OrbitControls,
-  Environment,
   PerspectiveCamera,
   shaderMaterial,
   Float,
@@ -16,12 +15,12 @@ import { MathUtils } from 'three';
 import * as random from 'maath/random';
 import { GestureRecognizer, FilesetResolver, DrawingUtils } from "@mediapipe/tasks-vision";
 
-// --- 动态生成照片列表 (top.jpg + 1.jpg 到 31.jpg) ---
+// --- 动态生成照片列表 (1.jpg 到 31.jpg + top.jpg) ---
 const TOTAL_NUMBERED_PHOTOS = 31;
-// 修改：将 top.jpg 加入到数组开头
+// 所有照片路径（编号照片 + 顶部照片）
 const bodyPhotoPaths = [
-  '/photos/top.jpg',
-  ...Array.from({ length: TOTAL_NUMBERED_PHOTOS }, (_, i) => `/photos/${i + 1}.jpg`)
+  ...Array.from({ length: TOTAL_NUMBERED_PHOTOS }, (_, i) => `/photos/${i + 1}.jpg`),
+  '/photos/top.jpg'
 ];
 
 // --- 视觉配置 ---
@@ -73,7 +72,7 @@ const FoliageMaterial = shaderMaterial(
   `uniform vec3 uColor; varying float vMix;
   void main() {
     float r = distance(gl_PointCoord, vec2(0.5)); if (r > 0.5) discard;
-    vec3 finalColor = mix(uColor * 0.3, uColor * 1.2, vMix);
+    vec3 finalColor = mix(uColor * 0.5, uColor * 1.5, vMix);
     gl_FragColor = vec4(finalColor, 1.0);
   }`
 );
@@ -125,7 +124,9 @@ const Foliage = ({ state }: { state: 'CHAOS' | 'FORMED' }) => {
 
 // --- Component: Photo Ornaments (Double-Sided Polaroid) ---
 const PhotoOrnaments = ({ state }: { state: 'CHAOS' | 'FORMED' }) => {
-  const textures = useTexture(CONFIG.photos.body);
+  const textures = useTexture(CONFIG.photos.body, () => {
+    console.log('✅ All textures loaded successfully');
+  });
   const count = CONFIG.counts.ornaments;
   const groupRef = useRef<THREE.Group>(null);
 
@@ -204,13 +205,13 @@ const PhotoOrnaments = ({ state }: { state: 'CHAOS' | 'FORMED' }) => {
             <mesh geometry={photoGeometry}>
               <meshStandardMaterial
                 map={textures[obj.textureIndex]}
-                roughness={0.5} metalness={0}
-                emissive={CONFIG.colors.white} emissiveMap={textures[obj.textureIndex]} emissiveIntensity={1.0}
+                roughness={0.4} metalness={0}
+                emissive={CONFIG.colors.white} emissiveMap={textures[obj.textureIndex]} emissiveIntensity={1.5}
                 side={THREE.FrontSide}
               />
             </mesh>
             <mesh geometry={borderGeometry} position={[0, -0.15, -0.01]}>
-              <meshStandardMaterial color={obj.borderColor} roughness={0.9} metalness={0} side={THREE.FrontSide} />
+              <meshStandardMaterial color={obj.borderColor} roughness={0.8} metalness={0.1} emissive={obj.borderColor} emissiveIntensity={0.2} side={THREE.FrontSide} />
             </mesh>
           </group>
           {/* 背面 */}
@@ -218,13 +219,13 @@ const PhotoOrnaments = ({ state }: { state: 'CHAOS' | 'FORMED' }) => {
             <mesh geometry={photoGeometry}>
               <meshStandardMaterial
                 map={textures[obj.textureIndex]}
-                roughness={0.5} metalness={0}
-                emissive={CONFIG.colors.white} emissiveMap={textures[obj.textureIndex]} emissiveIntensity={1.0}
+                roughness={0.4} metalness={0}
+                emissive={CONFIG.colors.white} emissiveMap={textures[obj.textureIndex]} emissiveIntensity={1.5}
                 side={THREE.FrontSide}
               />
             </mesh>
             <mesh geometry={borderGeometry} position={[0, -0.15, -0.01]}>
-              <meshStandardMaterial color={obj.borderColor} roughness={0.9} metalness={0} side={THREE.FrontSide} />
+              <meshStandardMaterial color={obj.borderColor} roughness={0.8} metalness={0.1} emissive={obj.borderColor} emissiveIntensity={0.2} side={THREE.FrontSide} />
             </mesh>
           </group>
         </group>
@@ -281,9 +282,12 @@ const ChristmasElements = ({ state }: { state: 'CHAOS' | 'FORMED' }) => {
     <group ref={groupRef}>
       {data.map((obj, i) => {
         let geometry; if (obj.type === 0) geometry = boxGeometry; else if (obj.type === 1) geometry = sphereGeometry; else geometry = caneGeometry;
-        return ( <mesh key={i} scale={[obj.scale, obj.scale, obj.scale]} geometry={geometry} rotation={obj.chaosRotation}>
-          <meshStandardMaterial color={obj.color} roughness={0.3} metalness={0.4} emissive={obj.color} emissiveIntensity={0.2} />
-        </mesh> )})}
+        return (
+          <mesh key={i} scale={[obj.scale, obj.scale, obj.scale]} geometry={geometry} rotation={obj.chaosRotation}>
+            <meshStandardMaterial color={obj.color} roughness={0.2} metalness={0.6} emissive={obj.color} emissiveIntensity={0.4} />
+          </mesh>
+        );
+      })}
     </group>
   );
 };
@@ -317,7 +321,7 @@ const FairyLights = ({ state }: { state: 'CHAOS' | 'FORMED' }) => {
       const mesh = child as THREE.Mesh;
       mesh.position.copy(objData.currentPos);
       const intensity = (Math.sin(time * objData.speed + objData.timeOffset) + 1) / 2;
-      if (mesh.material) { (mesh.material as THREE.MeshStandardMaterial).emissiveIntensity = isFormed ? 3 + intensity * 4 : 0; }
+      if (mesh.material) { (mesh.material as THREE.MeshStandardMaterial).emissiveIntensity = isFormed ? 4 + intensity * 6 : 0; }
     });
   });
 
@@ -357,8 +361,8 @@ const TopStar = ({ state }: { state: 'CHAOS' | 'FORMED' }) => {
   const goldMaterial = useMemo(() => new THREE.MeshStandardMaterial({
     color: CONFIG.colors.gold,
     emissive: CONFIG.colors.gold,
-    emissiveIntensity: 1.5, // 适中亮度，既发光又有质感
-    roughness: 0.1,
+    emissiveIntensity: 2.0, // 增强发光强度
+    roughness: 0.05,
     metalness: 1.0,
   }), []);
 
@@ -374,10 +378,41 @@ const TopStar = ({ state }: { state: 'CHAOS' | 'FORMED' }) => {
     <group ref={groupRef} position={[0, CONFIG.tree.height / 2 + 1.8, 0]}>
       <Float speed={2} rotationIntensity={0.2} floatIntensity={0.2}>
         <mesh geometry={starGeometry} material={goldMaterial} />
+        {/* 星星光晕 */}
+        <pointLight position={[0, 0, 0]} intensity={150} color={CONFIG.colors.gold} distance={15} decay={2} />
       </Float>
     </group>
   );
 };
+
+// --- Error Boundary Component ---
+class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean; error: Error | null }> {
+  constructor(props: { children: ReactNode }) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    console.error('❌ Error caught by boundary:', error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', color: '#ff0000', textAlign: 'center', zIndex: 1000, background: '#000', padding: '20px', borderRadius: '10px', border: '2px solid #ff0000' }}>
+          <h2>❌ Error Loading Scene</h2>
+          <p style={{ fontSize: '14px', marginTop: '10px' }}>{this.state.error?.message}</p>
+          <button onClick={() => window.location.reload()} style={{ marginTop: '20px', padding: '10px 20px', background: '#ff0000', color: '#fff', border: 'none', borderRadius: '5px', cursor: 'pointer' }}>Reload Page</button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 // --- Main Scene Experience ---
 const Experience = ({ sceneState, rotationSpeed }: { sceneState: 'CHAOS' | 'FORMED', rotationSpeed: number }) => {
@@ -394,29 +429,45 @@ const Experience = ({ sceneState, rotationSpeed }: { sceneState: 'CHAOS' | 'FORM
       <PerspectiveCamera makeDefault position={[0, 8, 60]} fov={45} />
       <OrbitControls ref={controlsRef} enablePan={false} enableZoom={true} minDistance={30} maxDistance={120} autoRotate={rotationSpeed === 0 && sceneState === 'FORMED'} autoRotateSpeed={0.3} maxPolarAngle={Math.PI / 1.7} />
 
-      <color attach="background" args={['#000300']} />
-      <Stars radius={100} depth={50} count={5000} factor={4} saturation={0} fade speed={1} />
-      <Environment preset="night" background={false} />
+      <color attach="background" args={['#000508']} />
+      <Stars radius={100} depth={50} count={8000} factor={5} saturation={0} fade speed={1} />
+      <Stars radius={50} depth={30} count={2000} factor={3} saturation={0.2} fade speed={0.5} />
+      {/* Environment 组件已移除，避免 HDR 文件加载失败 */}
 
-      <ambientLight intensity={0.4} color="#003311" />
-      <pointLight position={[30, 30, 30]} intensity={100} color={CONFIG.colors.warmLight} />
-      <pointLight position={[-30, 10, -30]} intensity={50} color={CONFIG.colors.gold} />
-      <pointLight position={[0, -20, 10]} intensity={30} color="#ffffff" />
+      {/* 增强环境光照 */}
+      <ambientLight intensity={0.6} color="#003311" />
+      <hemisphereLight args={['#001a0d', '#000000', 0.3]} />
+      
+      {/* 主要点光源 - 暖色调 */}
+      <pointLight position={[30, 30, 30]} intensity={120} color={CONFIG.colors.warmLight} castShadow />
+      <pointLight position={[-30, 10, -30]} intensity={70} color={CONFIG.colors.gold} />
+      <pointLight position={[0, -20, 10]} intensity={40} color="#ffffff" />
+      
+      {/* 补充光源 - 增加深度 */}
+      <pointLight position={[0, 40, 0]} intensity={50} color={CONFIG.colors.silver} />
+      <pointLight position={[20, -10, 20]} intensity={30} color={CONFIG.colors.green} />
+      <pointLight position={[-20, -10, -20]} intensity={30} color={CONFIG.colors.red} />
 
       <group position={[0, -6, 0]}>
         <Foliage state={sceneState} />
-        <Suspense fallback={null}>
+        <Suspense fallback={
+          <mesh>
+            <boxGeometry args={[1, 1, 1]} />
+            <meshStandardMaterial color="#FFD700" emissive="#FFD700" emissiveIntensity={2} />
+          </mesh>
+        }>
            <PhotoOrnaments state={sceneState} />
            <ChristmasElements state={sceneState} />
            <FairyLights state={sceneState} />
            <TopStar state={sceneState} />
         </Suspense>
-        <Sparkles count={600} scale={50} size={8} speed={0.4} opacity={0.4} color={CONFIG.colors.silver} />
+        <Sparkles count={800} scale={50} size={10} speed={0.3} opacity={0.6} color={CONFIG.colors.white} />
+        <Sparkles count={400} scale={[60, 80, 60]} size={6} speed={0.5} opacity={0.4} color={CONFIG.colors.silver} position={[0, 20, 0]} />
       </group>
 
       <EffectComposer>
-        <Bloom luminanceThreshold={0.8} luminanceSmoothing={0.1} intensity={1.5} radius={0.5} mipmapBlur />
-        <Vignette eskil={false} offset={0.1} darkness={1.2} />
+        <Bloom luminanceThreshold={0.6} luminanceSmoothing={0.2} intensity={2.0} radius={0.8} mipmapBlur />
+        <Vignette eskil={false} offset={0.05} darkness={1.1} />
       </EffectComposer>
     </>
   );
@@ -510,14 +561,22 @@ export default function GrandTreeApp() {
   const [aiStatus, setAiStatus] = useState("INITIALIZING...");
   const [debugMode, setDebugMode] = useState(false);
 
+  useEffect(() => {
+    console.log('✅ App Component Mounted');
+    console.log('📸 Total photos to load:', CONFIG.photos.body.length);
+    console.log('📸 Photo paths:', CONFIG.photos.body);
+  }, []);
+
   return (
     <div style={{ width: '100vw', height: '100vh', backgroundColor: '#000', position: 'relative', overflow: 'hidden' }}>
-      <div style={{ width: '100%', height: '100%', position: 'absolute', top: 0, left: 0, zIndex: 1 }}>
-        <Canvas dpr={[1, 2]} gl={{ toneMapping: THREE.ReinhardToneMapping }} shadows>
-            <Experience sceneState={sceneState} rotationSpeed={rotationSpeed} />
-        </Canvas>
-      </div>
-      <GestureController onGesture={setSceneState} onMove={setRotationSpeed} onStatus={setAiStatus} debugMode={debugMode} />
+      <ErrorBoundary>
+        <div style={{ width: '100%', height: '100%', position: 'absolute', top: 0, left: 0, zIndex: 1 }}>
+          <Canvas dpr={[1, 2]} gl={{ toneMapping: THREE.ReinhardToneMapping }} shadows>
+              <Experience sceneState={sceneState} rotationSpeed={rotationSpeed} />
+          </Canvas>
+        </div>
+        <GestureController onGesture={setSceneState} onMove={setRotationSpeed} onStatus={setAiStatus} debugMode={debugMode} />
+      </ErrorBoundary>
 
       {/* UI - Stats */}
       <div style={{ position: 'absolute', bottom: '30px', left: '40px', color: '#888', zIndex: 10, fontFamily: 'sans-serif', userSelect: 'none' }}>
